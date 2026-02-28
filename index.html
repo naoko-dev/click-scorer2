@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>クリック誘発率スコアラー</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet"/>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'DM Sans', 'Noto Sans JP', sans-serif; }
+    @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+    @keyframes petalFall {
+      0% { transform: translateY(-30px) translateX(0px) rotate(0deg); opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { transform: translateY(105vh) translateX(80px) rotate(720deg); opacity: 0; }
+    }
+    input::placeholder { color: #e8b8cc; }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useRef, useCallback, useEffect } = React;
+
+    /* ── 花びら ── */
+    function FallingPetals() {
+      const [petals, setPetals] = useState([]);
+      useEffect(() => {
+        setPetals(Array.from({ length: 18 }, (_, i) => ({
+          id: i, left: Math.random()*100, delay: Math.random()*12,
+          duration: 10+Math.random()*14, size: 12+Math.random()*16,
+          opacity: 0.25+Math.random()*0.4, rotation: Math.random()*360,
+          type: Math.floor(Math.random()*3),
+        })));
+      }, []);
+      return (
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:0,overflow:"hidden"}}>
+          {petals.map(p=>(
+            <div key={p.id} style={{position:"absolute",left:`${p.left}%`,top:"-30px",width:p.size,height:p.size,opacity:p.opacity,animation:`petalFall ${p.duration}s ${p.delay}s linear infinite`,transform:`rotate(${p.rotation}deg)`}}>
+              <svg viewBox="0 0 20 20" width={p.size} height={p.size}>
+                {p.type===0&&<ellipse cx="10" cy="10" rx="8" ry="5" fill="#fab0d6" transform={`rotate(${p.rotation},10,10)`} opacity="0.8"/>}
+                {p.type===1&&<path d="M10 2 C14 6,18 10,10 18 C2 10,6 6,10 2Z" fill="#fcc5e2" opacity="0.7"/>}
+                {p.type===2&&<ellipse cx="10" cy="10" rx="6" ry="9" fill="#fddaec" transform={`rotate(${30+p.rotation},10,10)`} opacity="0.6"/>}
+              </svg>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    /* ── プロンプト ── */
+    const SYSTEM_PROMPT_IMAGE = `あなたはSmartNews配信向けWeb記事の看板画像（アイキャッチ画像）を分析する専門家です。
+GLO（ゴールドライフオンライン）というシニア向けWebメディアの看板画像を、SmartNewsでのクリック率最大化の観点で採点してください。
+
+【最重要】SmartNews看板画像の鉄則（社内ノウハウ）：
+1. パッと見て目を引く画像であること（フィード上で埋もれないこと）
+2. パッと見て何が起こっているのか分かる構図であること
+3. 人物同士の関係性や、表情を大事にすること（表情が分かる人間の顔があるか）
+4. 重要な要素はなるべく中心に配置すること（SmartNewsは両サイドが削れるため）
+5. 曖昧な画像はなるべく避けること（目を引かない、埋もれる）
+
+【加点要素】：
+- 表情が分かる人間の顔が入っている
+- タイトルに入りきらなかった情報を画像で補完している
+- 官能的・緊張感のある雰囲気の演出がある
+- Canva等での画像編集で雰囲気を強化している（ただし暗すぎはNG）
+- コントラストを強くして差別化・緊張感・ダークな雰囲気を出している
+- 人物の感情（恐怖、悲しみ、怒り、切なさ等）がはっきり伝わる
+
+【減点要素】：
+- 重要要素が両サイドに寄っている（SNで見切れる）
+- 表情が読み取れない/人物の顔が小さい
+- 何が起こっているか一目でわからない
+- 他の記事と差別化できない平凡な構図
+- 暗すぎて何が写っているかわからない
+
+【重要ルール】：
+- 当社では看板画像内にテキスト（文字）を入れることは禁止しています。画像内にテキストがないことは正常であり、減点しないでください。もし画像内にテキストが入っている場合は、むしろ社内ルール違反として改善点で指摘してください。
+
+以下の6項目で採点してください：
+1. 色使い・配色（鮮やかさ、コントラスト、フィード上での差別化）
+2. 明瞭さ・視認性（画像が鮮明か、被写体がはっきり見えるか、暗すぎないか）
+3. 人物の表情・視線（感情の伝わりやすさ、視線誘導、関係性の表現）
+4. 構図・レイアウト（重要要素の中央配置、SN両サイド削れ対策、一目で状況把握できるか）
+5. サムネイル映え（小さく表示された時のインパクト、フィードで埋もれないか）
+6. ターゲット層への訴求力（感情を揺さぶる要素、クリックしたくなる仕掛け）
+
+【コンテンツポリシーチェック】：
+以下に該当する場合のみ（90%以上の確率で該当すると判断した場合のみ）、policy_warningに警告文を入れてください。グレーゾーンの場合はpolicy_warningは空文字にしてください。
+- 露骨な性的表現やポルノに該当する画像
+- 自殺、自傷行為、薬物乱用を誘引する表現
+- 過度に暴力的・不快な表現
+- 差別を助長する表現
+- 特定人物への嫌がらせ・いじめ・脅迫
+警告文を書く場合は「SmartNewsのコンテンツポリシーに違反する可能性があります」という表現にとどめ、断定的に書かないでください。
+
+必ず以下のJSON形式のみで回答してください。JSONの前後に余計なテキストやMarkdownのバッククォートを含めないでください：
+{
+  "score": 数値(0-100),
+  "color_score": 数値(0-100),
+  "text_score": 数値(0-100),
+  "expression_score": 数値(0-100),
+  "composition_score": 数値(0-100),
+  "thumbnail_score": 数値(0-100),
+  "appeal_score": 数値(0-100),
+  "good_points": ["良い点1", "良い点2", "良い点3"],
+  "improve_points": ["改善点1", "改善点2", "改善点3"],
+  "summary": "総評（2-3文で）",
+  "policy_warning": "ポリシー警告（該当する場合のみ記載。該当しない場合は空文字）"
+}`;
+
+    const SYSTEM_PROMPT_TITLE = `あなたはSmartNews配信向けWeb記事のタイトルを分析する専門家です。
+GLO（ゴールドライフオンライン）というシニア向けWebメディアの記事タイトルを、SmartNewsでのクリック率最大化の観点で採点してください。
+
+【最重要】SmartNewsで伸びる記事の要素（社内ノウハウ・重要度順）：
+■ 最重要テーマ（これがあればほぼ伸びる）：
+  身体の異変（病気の前兆）/ 性的なこと / 葬式 / 拒食症
+■ 重要テーマ：
+  戦争 / 老病死 / 意識不明・救急 / 家族・夫婦・親子関係の軋轢 / 妊娠出産 / 動物 / 幼い子 / 母子の絆 / 暴力
+■ 準重要テーマ：
+  「なんで？」ってなる / 可哀想・イライラ・不安などの感情を喚起する / 定説と違う説（日本史など） / 時流と異なる論（ジェンダー等） / クレーマー / 診断やチェック系
+
+【タイトル作成の鉄則】：
+1. 上記の伸びる要素に当てはまる箇所を本文から抜粋し組み立てること
+2. インパクトのある言葉は文頭に置くこと
+3. インパクトのある結論以外、結論を書かないこと。「…」で隠して好奇心を煽ること
+4. ユーザーの好奇心を掻き立てる、感情を揺さぶる要素を入れること
+5. 見てほしい要素は55字目以内に入れること（SmartNewsだと55字以降は削れる）
+6. 「モラハラ夫」「毒親」などの人物属性は明記せず、行動で匂わせること
+7. できれば漢字・ひらがな・記号のバランスを見て、パッと読める文にすること
+
+【高PVタイトルの特徴（実績ベース）】：
+- 「死」を予感させる匂わせがある
+- インパクトのあるセリフ部分を冒頭に持ってくる
+- 複数の抜粋部を切り貼りして、一つの物語のようにタイトル全体を構成している
+- 淡々とした物語でもタイトルのつけ方次第で伸びる
+- 一般的な行動に対して不安を煽る切り口
+- 作品を知らないユーザーでもクリックしたくなるよう、物語の要点をあえてスルーする
+
+以下の6項目で採点してください：
+1. パワーワード（感情を動かす強い言葉があるか、文頭にインパクトがあるか）
+2. 具体性（数字、固有名詞、具体的セリフの抜粋があるか）
+3. 好奇心の喚起（結論を隠して「…」で匂わせているか、続きを読みたくなるか）
+4. 文字数・リズム（55字以内に重要要素が入っているか、漢字ひらがな記号のバランス、読みやすいか）
+5. ターゲット適合性（伸びるテーマ要素が含まれているか、シニア層の関心に合っているか）
+6. 感情揺さぶり度（可哀想・イライラ・不安・恐怖・切なさなどの感情を喚起するか）
+
+【コンテンツポリシーチェック】：
+以下に該当する場合のみ（90%以上の確率で該当すると判断した場合のみ）、policy_warningに警告文を入れてください。グレーゾーンの場合はpolicy_warningは空文字にしてください。
+- 露骨な性的表現
+- 自殺、自傷行為、薬物乱用を誘引する表現
+- 過度に暴力的・不快な表現
+- 差別を助長する表現
+- 見出しが本文と著しく乖離した釣り記事
+- 有害で危険な行為を助長する表現
+警告文を書く場合は「SmartNewsのコンテンツポリシーに違反する可能性があります」という表現にとどめてください。
+
+必ず以下のJSON形式のみで回答してください。JSONの前後に余計なテキストやMarkdownのバッククォートを含めないでください：
+{
+  "score": 数値(0-100),
+  "power_word_score": 数値(0-100),
+  "specificity_score": 数値(0-100),
+  "curiosity_score": 数値(0-100),
+  "rhythm_score": 数値(0-100),
+  "target_score": 数値(0-100),
+  "emotion_score": 数値(0-100),
+  "good_points": ["良い点1", "良い点2", "良い点3"],
+  "improve_points": ["改善点1", "改善点2", "改善点3"],
+  "summary": "総評（2-3文で）",
+  "policy_warning": "ポリシー警告（該当する場合のみ記載。該当しない場合は空文字）"
+}`;
+
+    const SYSTEM_PROMPT_CROSS = `あなたはSmartNewsにおけるWeb記事コンテンツのパフォーマンス分析の専門家です。
+看板画像の分析スコア、記事タイトルの分析スコア、そして実際のSmartNews PV数が与えられます。
+これらを総合的に照らし合わせて、PV数の要因分析を行ってください。
+
+GLO（ゴールドライフオンライン）はシニア向けWebメディアです。SmartNewsでの配信記事の平均PVは約3,000〜8,000PV程度です。
+- 10,000PV以上：好成績
+- 20,000PV以上：大ヒット
+- 50,000PV以上：特大ヒット
+- 100,000PV以上：メガヒット（年間トップクラス）
+- 5,000PV未満：やや低調
+- 2,000PV未満：かなり低調
+
+【分析の背景知識】SmartNewsで伸びる記事には以下の要素がある：
+- 最重要テーマ：身体の異変/性的なこと/葬式/拒食症
+- 重要テーマ：戦争/老病死/意識不明・救急/家族軋轢/妊娠出産/動物/幼い子/母子の絆/暴力
+- 準重要テーマ：「なんで？」と思わせる/感情喚起/定説と違う説/クレーマー/診断チェック系
+- これらの要素がないテーマはSNよりも検索向けに調整すべき
+
+以下の観点で分析してください：
+1. PV数と画像スコア・タイトルスコアの相関を評価
+2. 「画像やタイトルが良かったからクリックされたのか」を判定
+3. 「画像やタイトルが悪くて機会損失しているのか」を判定
+4. スコアが高いのにPVが低い場合→テーマ自体がSN向きでない可能性、配信タイミング、競合記事との被りなど別要因を指摘
+5. スコアが低いのにPVが高い場合→テーマ力で引っ張っている可能性を指摘
+6. 次回への具体的な改善アクションを提示
+
+必ず以下のJSON形式のみで回答してください：
+{
+  "verdict": "success" または "missed_opportunity" または "theme_carried" または "needs_investigation",
+  "verdict_label": "判定ラベル",
+  "verdict_detail": "判定の詳細説明（3-4文で）",
+  "pv_evaluation": "PV数の評価",
+  "image_contribution": "画像がPVに与えた影響の分析（2-3文）",
+  "title_contribution": "タイトルがPVに与えた影響の分析（2-3文）",
+  "other_factors": ["推定要因1", "要因2", "要因3"],
+  "action_items": ["改善アクション1", "アクション2", "アクション3"]
+}`;
+
+    /* ── カラー ── */
+    const PK = {
+      primary:"#e890b8", primaryLight:"#fab0d6", accent:"#fddaec",
+      textMain:"#2d2030", textSub:"#6b5570", textMuted:"#a08da5",
+      cardBg:"#fff7fa", cardBorder:"rgba(250,176,214,0.3)",
+      goodColor:"#e890b8", goodBg:"rgba(250,176,214,0.12)", goodBorder:"rgba(250,176,214,0.35)",
+      improveColor:"#e07820", improveBg:"rgba(224,120,32,0.06)", improveBorder:"rgba(224,120,32,0.18)",
+    };
+
+    /* ── UIパーツ ── */
+    function ScoreGauge({score,size=130,label}){
+      const r=(size-16)/2, c=2*Math.PI*r, o=c-(score/100)*c;
+      const col=score>=80?"#e890b8":score>=60?"#e07820":score>=40?"#e05a20":"#d03030";
+      return(
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+          <div style={{position:"relative",width:size,height:size}}>
+            <svg width={size} height={size} style={{transform:"rotate(-90deg)"}}>
+              <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(250,176,214,0.25)" strokeWidth="9"/>
+              <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={col} strokeWidth="9" strokeDasharray={c} strokeDashoffset={o} strokeLinecap="round" style={{transition:"stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1)"}}/>
+            </svg>
+            <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+              <span style={{fontSize:size*0.32,fontWeight:800,color:col,fontFamily:"'DM Sans',sans-serif"}}>{score}</span>
+              <span style={{fontSize:12,color:PK.textMuted,letterSpacing:1}}>/ 100</span>
+            </div>
+          </div>
+          {label&&<span style={{fontSize:13,color:PK.textSub,textAlign:"center"}}>{label}</span>}
+        </div>
+      );
+    }
+
+    function MiniBar({label,value}){
+      const col=value>=80?"#e890b8":value>=60?"#e07820":value>=40?"#e05a20":"#d03030";
+      return(
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
+          <span style={{fontSize:14,color:PK.textSub,width:130,flexShrink:0,textAlign:"right"}}>{label}</span>
+          <div style={{flex:1,height:10,borderRadius:5,background:"rgba(250,176,214,0.08)",overflow:"hidden"}}>
+            <div style={{width:`${value}%`,height:"100%",borderRadius:5,background:col,transition:"width 1s cubic-bezier(0.4,0,0.2,1)"}}/>
+          </div>
+          <span style={{fontSize:14,fontWeight:700,color:col,width:36,textAlign:"right"}}>{value}</span>
+        </div>
+      );
+    }
+
+    function PointsList({items,type}){
+      const icon=type==="good"?"✦":"△";
+      const isG=type==="good";
+      const ac=isG?PK.goodColor:PK.improveColor, bg=isG?PK.goodBg:PK.improveBg, bd=isG?PK.goodBorder:PK.improveBorder;
+      return(
+        <div>
+          <div style={{fontSize:13,fontWeight:700,color:ac,letterSpacing:2,marginBottom:12}}>{isG?"良い点":"改善点"}</div>
+          {items.map((item,i)=>(
+            <div key={i} style={{display:"flex",gap:10,alignItems:"flex-start",marginBottom:10,padding:"10px 14px",borderRadius:10,background:bg,border:`1px solid ${bd}`}}>
+              <span style={{color:ac,fontSize:14,marginTop:1,flexShrink:0}}>{icon}</span>
+              <span style={{fontSize:15,color:PK.textMain,lineHeight:1.6}}>{item}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    function ResultCard({result,type}){
+      const sub=type==="image"
+        ?[{l:"色使い・配色",v:result.color_score},{l:"明瞭さ・視認性",v:result.text_score},{l:"人物の表情",v:result.expression_score},{l:"構図・レイアウト",v:result.composition_score},{l:"サムネイル映え",v:result.thumbnail_score},{l:"ターゲット訴求力",v:result.appeal_score}]
+        :[{l:"パワーワード",v:result.power_word_score},{l:"具体性",v:result.specificity_score},{l:"好奇心の喚起",v:result.curiosity_score},{l:"文字数・リズム",v:result.rhythm_score},{l:"ターゲット適合性",v:result.target_score},{l:"感情揺さぶり度",v:result.emotion_score}];
+      return(
+        <div style={{background:PK.cardBg,border:`1px solid ${PK.cardBorder}`,borderRadius:18,padding:32,animation:"fadeSlideIn 0.6s ease-out"}}>
+          <div style={{display:"flex",gap:32,flexWrap:"wrap",alignItems:"flex-start"}}>
+            <ScoreGauge score={result.score} size={150} label="総合スコア"/>
+            <div style={{flex:1,minWidth:260}}>{sub.map(s=><MiniBar key={s.l} label={s.l} value={s.v}/>)}</div>
+          </div>
+          <div style={{margin:"28px 0",padding:18,borderRadius:12,background:"rgba(250,176,214,0.04)",border:"1px solid rgba(250,176,214,0.1)",fontSize:15,color:PK.textMain,lineHeight:1.8}}>{result.summary}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24}}>
+            <PointsList items={result.good_points} type="good"/>
+            <PointsList items={result.improve_points} type="improve"/>
+          </div>
+          {result.policy_warning&&result.policy_warning.length>0&&(
+            <div style={{marginTop:24,padding:16,borderRadius:12,background:"rgba(208,48,48,0.06)",border:"1px solid rgba(208,48,48,0.2)",display:"flex",gap:12,alignItems:"flex-start"}}>
+              <span style={{fontSize:20,flexShrink:0}}>⚠️</span>
+              <div>
+                <div style={{fontSize:13,fontWeight:700,color:"#d03030",letterSpacing:1,marginBottom:4}}>コンテンツポリシー注意</div>
+                <div style={{fontSize:14,color:"#9a2020",lineHeight:1.6}}>{result.policy_warning}</div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function CrossAnalysisCard({result,pv}){
+      const vc={
+        success:{color:"#e890b8",bg:"rgba(250,176,214,0.12)",border:"rgba(250,176,214,0.4)",icon:"🎯"},
+        missed_opportunity:{color:"#d03030",bg:"rgba(208,48,48,0.06)",border:"rgba(208,48,48,0.2)",icon:"⚠️"},
+        theme_carried:{color:"#9333ea",bg:"rgba(147,51,234,0.06)",border:"rgba(147,51,234,0.2)",icon:"🔥"},
+        needs_investigation:{color:"#e07820",bg:"rgba(224,120,32,0.06)",border:"rgba(224,120,32,0.2)",icon:"🔍"},
+      };
+      const cfg=vc[result.verdict]||vc.needs_investigation;
+      return(
+        <div style={{background:PK.cardBg,border:`1px solid ${PK.cardBorder}`,borderRadius:18,padding:32,animation:"fadeSlideIn 0.6s ease-out"}}>
+          <div style={{display:"flex",alignItems:"center",gap:18,marginBottom:28}}>
+            <div style={{width:60,height:60,borderRadius:16,background:cfg.bg,border:`1px solid ${cfg.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:30}}>{cfg.icon}</div>
+            <div>
+              <div style={{fontSize:20,fontWeight:800,color:cfg.color,marginBottom:4}}>{result.verdict_label}</div>
+              <div style={{fontSize:14,color:PK.textSub}}>
+                SmartNews PV: <span style={{color:PK.textMain,fontWeight:700,fontSize:16}}>{Number(pv).toLocaleString()}</span>
+                <span style={{marginLeft:12,padding:"3px 10px",borderRadius:8,background:cfg.bg,border:`1px solid ${cfg.border}`,color:cfg.color,fontSize:13,fontWeight:600}}>{result.pv_evaluation}</span>
+              </div>
+            </div>
+          </div>
+          <div style={{padding:18,borderRadius:12,background:cfg.bg,border:`1px solid ${cfg.border}`,fontSize:15,color:PK.textMain,lineHeight:1.8,marginBottom:28}}>{result.verdict_detail}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:18,marginBottom:28}}>
+            <div style={{padding:18,borderRadius:12,background:"rgba(250,176,214,0.04)",border:"1px solid rgba(250,176,214,0.12)"}}>
+              <div style={{fontSize:13,fontWeight:700,color:PK.primary,letterSpacing:2,marginBottom:10}}>🖼 画像の貢献度</div>
+              <div style={{fontSize:15,color:PK.textMain,lineHeight:1.7}}>{result.image_contribution}</div>
+            </div>
+            <div style={{padding:18,borderRadius:12,background:"rgba(224,120,32,0.04)",border:"1px solid rgba(224,120,32,0.12)"}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#e07820",letterSpacing:2,marginBottom:10}}>✏️ タイトルの貢献度</div>
+              <div style={{fontSize:15,color:PK.textMain,lineHeight:1.7}}>{result.title_contribution}</div>
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:700,color:"#9333ea",letterSpacing:2,marginBottom:12}}>その他の推定要因</div>
+              {result.other_factors.map((f,i)=>(<div key={i} style={{display:"flex",gap:10,alignItems:"flex-start",marginBottom:10,padding:"10px 14px",borderRadius:10,background:"rgba(147,51,234,0.05)",border:"1px solid rgba(147,51,234,0.12)"}}><span style={{color:"#9333ea",fontSize:14,marginTop:1,flexShrink:0}}>◆</span><span style={{fontSize:15,color:PK.textMain,lineHeight:1.6}}>{f}</span></div>))}
+            </div>
+            <div>
+              <div style={{fontSize:13,fontWeight:700,color:PK.primary,letterSpacing:2,marginBottom:12}}>次回への改善アクション</div>
+              {result.action_items.map((a,i)=>(<div key={i} style={{display:"flex",gap:10,alignItems:"flex-start",marginBottom:10,padding:"10px 14px",borderRadius:10,background:"rgba(250,176,214,0.04)",border:"1px solid rgba(250,176,214,0.12)"}}><span style={{color:PK.primary,fontSize:14,marginTop:1,flexShrink:0}}>→</span><span style={{fontSize:15,color:PK.textMain,lineHeight:1.6}}>{a}</span></div>))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ── メインApp ── */
+    function App(){
+      const [apiKey,setApiKey]=useState("");
+      const [showKey,setShowKey]=useState(false);
+      const [imagePreview,setImagePreview]=useState(null);
+      const [imageBase64,setImageBase64]=useState(null);
+      const [imageMediaType,setImageMediaType]=useState(null);
+      const [title,setTitle]=useState("");
+      const [pvCount,setPvCount]=useState("");
+      const [imageResult,setImageResult]=useState(null);
+      const [titleResult,setTitleResult]=useState(null);
+      const [crossResult,setCrossResult]=useState(null);
+      const [loadingImage,setLoadingImage]=useState(false);
+      const [loadingTitle,setLoadingTitle]=useState(false);
+      const [loadingCross,setLoadingCross]=useState(false);
+      const [error,setError]=useState(null);
+      const fileInputRef=useRef(null);
+      const [dragOver,setDragOver]=useState(false);
+
+      const handleFile=useCallback((file)=>{
+        if(!file||!file.type.startsWith("image/"))return;
+        setImageMediaType(file.type);
+        const pr=new FileReader();pr.onload=e=>setImagePreview(e.target.result);pr.readAsDataURL(file);
+        const br=new FileReader();br.onload=e=>setImageBase64(e.target.result.split(",")[1]);br.readAsDataURL(file);
+        setImageResult(null);setCrossResult(null);
+      },[]);
+
+      const callAPI=async(system,messages)=>{
+        if(!apiKey.trim()){setError("APIキーを入力してください");return null;}
+        const res=await fetch("https://api.anthropic.com/v1/messages",{
+          method:"POST",
+          headers:{"Content-Type":"application/json","x-api-key":apiKey.trim(),"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+          body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,system,messages}),
+        });
+        if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error?.message||`API Error: ${res.status}`);}
+        const data=await res.json();
+        const text=data.content.map(c=>c.text||"").join("");
+        return JSON.parse(text.replace(/```json|```/g,"").trim());
+      };
+
+      const analyzeImage=async()=>{
+        if(!imageBase64)return;
+        setLoadingImage(true);setError(null);
+        try{
+          const r=await callAPI(SYSTEM_PROMPT_IMAGE,[{role:"user",content:[
+            {type:"image",source:{type:"base64",media_type:imageMediaType||"image/jpeg",data:imageBase64}},
+            {type:"text",text:"この看板画像のクリック誘発率を分析してください。"},
+          ]}]);
+          if(r)setImageResult(r);setCrossResult(null);
+        }catch(e){setError("画像分析エラー: "+e.message);}
+        setLoadingImage(false);
+      };
+
+      const analyzeTitle=async()=>{
+        if(!title.trim())return;
+        setLoadingTitle(true);setError(null);
+        try{
+          const r=await callAPI(SYSTEM_PROMPT_TITLE,[{role:"user",content:`以下の記事タイトルのクリック誘発率を分析してください：\n\n「${title}」`}]);
+          if(r)setTitleResult(r);setCrossResult(null);
+        }catch(e){setError("タイトル分析エラー: "+e.message);}
+        setLoadingTitle(false);
+      };
+
+      const analyzeCross=async()=>{
+        if(!imageResult||!titleResult||!pvCount)return;
+        setLoadingCross(true);setError(null);
+        try{
+          const prompt=`以下のデータを元に総合分析を行ってください。\n\n■ 看板画像分析結果\n総合スコア: ${imageResult.score}/100\n各項目: 色使い${imageResult.color_score}, 明瞭さ${imageResult.text_score}, 表情${imageResult.expression_score}, 構図${imageResult.composition_score}, サムネイル映え${imageResult.thumbnail_score}, 訴求力${imageResult.appeal_score}\n良い点: ${imageResult.good_points.join(' / ')}\n改善点: ${imageResult.improve_points.join(' / ')}\n総評: ${imageResult.summary}\n\n■ 記事タイトル分析結果\nタイトル: 「${title}」\n総合スコア: ${titleResult.score}/100\n各項目: パワーワード${titleResult.power_word_score}, 具体性${titleResult.specificity_score}, 好奇心${titleResult.curiosity_score}, リズム${titleResult.rhythm_score}, ターゲット${titleResult.target_score}, 感情揺さぶり${titleResult.emotion_score}\n良い点: ${titleResult.good_points.join(' / ')}\n改善点: ${titleResult.improve_points.join(' / ')}\n総評: ${titleResult.summary}\n\n■ SmartNews PV数（実績）\n${Number(pvCount).toLocaleString()} PV\n\n画像スコアとタイトルスコア、そして実績PV数を照らし合わせて分析してください。`;
+          const r=await callAPI(SYSTEM_PROMPT_CROSS,[{role:"user",content:prompt}]);
+          if(r)setCrossResult(r);
+        }catch(e){setError("総合分析エラー: "+e.message);}
+        setLoadingCross(false);
+      };
+
+      const handleDrop=useCallback(e=>{e.preventDefault();setDragOver(false);handleFile(e.dataTransfer.files[0]);},[handleFile]);
+      const handleClear=()=>{setImagePreview(null);setImageBase64(null);setImageMediaType(null);setTitle("");setPvCount("");setImageResult(null);setTitleResult(null);setCrossResult(null);setError(null);if(fileInputRef.current)fileInputRef.current.value="";};
+
+      const canCross=imageResult&&titleResult&&pvCount&&Number(pvCount)>0;
+      const inp={width:"100%",padding:"16px 22px",border:"1px solid rgba(250,176,214,0.18)",borderRadius:12,background:"#fff",color:PK.textMain,fontSize:16,fontFamily:"'Noto Sans JP',sans-serif",outline:"none",boxSizing:"border-box",transition:"border-color 0.3s"};
+      const secLbl={fontSize:15,fontWeight:700,color:PK.primary,letterSpacing:3,marginBottom:18};
+      const btn={marginTop:18,width:"100%",padding:"16px 0",border:"none",borderRadius:12,color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer",transition:"all 0.3s",fontFamily:"'DM Sans','Noto Sans JP',sans-serif"};
+
+      return(
+        <div style={{minHeight:"100vh",background:"#ffffff",color:PK.textMain,fontFamily:"'DM Sans','Noto Sans JP',sans-serif",position:"relative"}}>
+          <FallingPetals/>
+          {/* Header */}
+          <div style={{padding:"44px 32px 36px",borderBottom:"1px solid rgba(250,176,214,0.1)",background:"linear-gradient(180deg,rgba(250,176,214,0.04) 0%,transparent 100%)",position:"relative",zIndex:1}}>
+            <div style={{maxWidth:840,margin:"0 auto"}}>
+              <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:10}}>
+                <div style={{width:42,height:42,borderRadius:12,background:"linear-gradient(135deg,#fab0d6,#e890b8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🌸</div>
+                <h1 style={{fontSize:26,fontWeight:800,margin:0,flex:1,background:"linear-gradient(135deg,#e890b8,#fab0d6)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>クリック誘発率スコアラー</h1>
+                <button onClick={handleClear} style={{padding:"9px 20px",borderRadius:10,border:"1px solid rgba(250,176,214,0.4)",background:"#fff",color:PK.primary,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif",whiteSpace:"nowrap"}}>🔄 クリア</button>
+              </div>
+              <p style={{fontSize:15,color:PK.textMuted,margin:0,paddingLeft:56}}>画像・タイトル・PV実績をAIが総合分析し、クリック率の要因と改善点を可視化します</p>
+            </div>
+          </div>
+
+          <div style={{maxWidth:840,margin:"0 auto",padding:"36px 32px 72px",position:"relative",zIndex:1}}>
+
+            {/* APIキー入力 */}
+            <section style={{marginBottom:40}}>
+              <div style={secLbl}>🔑 APIキー設定</div>
+              <div style={{padding:20,borderRadius:14,background:"#fff7fa",border:"1px solid rgba(250,176,214,0.2)"}}>
+                <div style={{fontSize:13,color:PK.textMuted,marginBottom:12,lineHeight:1.7}}>
+                  Anthropic APIキーを入力してください。キーはブラウザのメモリ上のみで保持され、どこにも保存・送信されません。
+                </div>
+                <div style={{display:"flex",gap:10}}>
+                  <div style={{flex:1,position:"relative"}}>
+                    <input type={showKey?"text":"password"} value={apiKey} placeholder="sk-ant-api03-..." style={{...inp,paddingRight:50}}
+                      onChange={e=>setApiKey(e.target.value)}/>
+                    <button onClick={()=>setShowKey(!showKey)} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",border:"none",background:"none",cursor:"pointer",fontSize:18,color:PK.textMuted}}>
+                      {showKey?"🙈":"👁"}
+                    </button>
+                  </div>
+                </div>
+                {apiKey.trim()&&<div style={{marginTop:10,fontSize:13,color:"#e890b8"}}>✅ APIキー設定済み</div>}
+              </div>
+            </section>
+
+            {/* 01 看板画像 */}
+            <section style={{marginBottom:48}}>
+              <div style={secLbl}>01 — 看板画像</div>
+              <div onDrop={handleDrop} onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onClick={()=>fileInputRef.current?.click()}
+                style={{border:`2px dashed ${dragOver?PK.primary:"rgba(250,176,214,0.18)"}`,borderRadius:16,padding:imagePreview?0:52,textAlign:"center",cursor:"pointer",transition:"all 0.3s",background:dragOver?"rgba(250,176,214,0.1)":"#fffbfd",overflow:"hidden",position:"relative"}}>
+                <input ref={fileInputRef} type="file" accept="image/*" onChange={e=>handleFile(e.target.files[0])} style={{display:"none"}}/>
+                {imagePreview?(
+                  <div style={{position:"relative"}}>
+                    <img src={imagePreview} alt="Preview" style={{width:"100%",maxHeight:340,objectFit:"contain",display:"block"}}/>
+                    <div style={{position:"absolute",bottom:14,right:14,background:"rgba(255,255,255,0.9)",borderRadius:8,padding:"7px 14px",fontSize:13,color:PK.textSub,boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>クリックで画像を変更</div>
+                  </div>
+                ):(
+                  <React.Fragment>
+                    <div style={{fontSize:42,marginBottom:14,opacity:0.5}}>🌸</div>
+                    <div style={{fontSize:16,color:PK.textMuted}}>ドラッグ＆ドロップ または クリックで画像をアップロード</div>
+                    <div style={{fontSize:13,color:"#e8b8cc",marginTop:10}}>JPG, PNG, WebP対応</div>
+                  </React.Fragment>
+                )}
+              </div>
+              {imageBase64&&(<button onClick={analyzeImage} disabled={loadingImage} style={{...btn,background:loadingImage?"rgba(250,176,214,0.3)":"linear-gradient(135deg,#fab0d6,#e890b8)",cursor:loadingImage?"not-allowed":"pointer",boxShadow:loadingImage?"none":"0 4px 20px rgba(250,176,214,0.35)"}}>{loadingImage?<span style={{animation:"pulse 1.5s infinite"}}>分析中...</span>:"画像を分析する"}</button>)}
+              {imageResult&&<div style={{marginTop:28}}><ResultCard result={imageResult} type="image"/></div>}
+            </section>
+
+            {/* 02 記事タイトル */}
+            <section style={{marginBottom:48}}>
+              <div style={secLbl}>02 — 記事タイトル</div>
+              <div style={{position:"relative"}}>
+                <input type="text" value={title} placeholder="記事タイトルを入力..." style={inp} onChange={e=>{setTitle(e.target.value);setTitleResult(null);setCrossResult(null);}}/>
+                <div style={{position:"absolute",right:18,top:"50%",transform:"translateY(-50%)",fontSize:13,color:PK.textMuted}}>{title.length}文字</div>
+              </div>
+              {title.trim()&&(<button onClick={analyzeTitle} disabled={loadingTitle} style={{...btn,background:loadingTitle?"rgba(224,120,32,0.3)":"linear-gradient(135deg,#e07820,#c06010)",cursor:loadingTitle?"not-allowed":"pointer",boxShadow:loadingTitle?"none":"0 4px 20px rgba(224,120,32,0.2)"}}>{loadingTitle?<span style={{animation:"pulse 1.5s infinite"}}>分析中...</span>:"タイトルを分析する"}</button>)}
+              {titleResult&&<div style={{marginTop:28}}><ResultCard result={titleResult} type="title"/></div>}
+            </section>
+
+            {/* 03 SmartNews PV数 */}
+            <section style={{marginBottom:48}}>
+              <div style={secLbl}>03 — SmartNews PV数（任意）</div>
+              <div style={{position:"relative"}}>
+                <input type="number" value={pvCount} placeholder="例: 12500" style={{...inp,paddingRight:55}} onChange={e=>{setPvCount(e.target.value);setCrossResult(null);}}/>
+                <div style={{position:"absolute",right:18,top:"50%",transform:"translateY(-50%)",fontSize:14,color:PK.textMuted,fontWeight:600}}>PV</div>
+              </div>
+              {pvCount&&Number(pvCount)>0&&(
+                <div style={{marginTop:12,fontSize:14,color:PK.textSub,display:"flex",gap:18,flexWrap:"wrap"}}>
+                  <span>📊 入力値: <strong style={{color:PK.textMain}}>{Number(pvCount).toLocaleString()} PV</strong></span>
+                  <span style={{color:Number(pvCount)>=100000?"#e890b8":Number(pvCount)>=20000?"#fab0d6":Number(pvCount)>=5000?"#e07820":"#d03030"}}>
+                    {Number(pvCount)>=100000?"💎 メガヒット水準":Number(pvCount)>=50000?"🔥 特大ヒット水準":Number(pvCount)>=20000?"🔥 大ヒット水準":Number(pvCount)>=10000?"✨ 好成績水準":Number(pvCount)>=5000?"📈 平均水準":Number(pvCount)>=2000?"📉 やや低調":"⚠️ かなり低調"}
+                  </span>
+                </div>
+              )}
+            </section>
+
+            {/* 04 総合クロス分析 */}
+            <section style={{marginBottom:48}}>
+              <div style={secLbl}>04 — 総合クロス分析</div>
+              {!canCross&&(
+                <div style={{padding:28,borderRadius:16,border:"2px dashed rgba(250,176,214,0.35)",textAlign:"center",background:"#fffbfd"}}>
+                  <div style={{fontSize:15,color:PK.textMuted,lineHeight:1.8}}>以下の3つが揃うと総合分析を実行できます</div>
+                  <div style={{display:"flex",justifyContent:"center",gap:24,marginTop:18,flexWrap:"wrap"}}>
+                    {[{done:!!imageResult,label:"画像分析"},{done:!!titleResult,label:"タイトル分析"},{done:pvCount&&Number(pvCount)>0,label:"PV数入力"}].map(item=>(
+                      <div key={item.label} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 18px",borderRadius:10,background:item.done?"rgba(250,176,214,0.06)":"#fff",border:`1px solid ${item.done?"rgba(250,176,214,0.25)":"rgba(250,176,214,0.1)"}`}}>
+                        <span style={{fontSize:16}}>{item.done?"🌸":"⬜"}</span>
+                        <span style={{fontSize:14,color:item.done?PK.primary:PK.textMuted,fontWeight:600}}>{item.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {canCross&&(<button onClick={analyzeCross} disabled={loadingCross} style={{...btn,marginTop:0,background:loadingCross?"rgba(147,51,234,0.3)":"linear-gradient(135deg,#9333ea,#7c3aed)",cursor:loadingCross?"not-allowed":"pointer",fontSize:17,padding:"18px 0",boxShadow:loadingCross?"none":"0 4px 24px rgba(147,51,234,0.2)"}}>{loadingCross?<span style={{animation:"pulse 1.5s infinite"}}>総合分析中...</span>:"🔬 画像 × タイトル × PV 総合分析を実行"}</button>)}
+              {crossResult&&<div style={{marginTop:28}}><CrossAnalysisCard result={crossResult} pv={pvCount}/></div>}
+            </section>
+
+            {error&&(<div style={{marginTop:28,padding:18,borderRadius:12,background:"rgba(208,48,48,0.06)",border:"1px solid rgba(208,48,48,0.15)",color:"#d03030",fontSize:15}}>{error}</div>)}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>
